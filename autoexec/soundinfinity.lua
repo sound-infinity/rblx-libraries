@@ -32,6 +32,6 @@ local function loadScript(name)
 	end
 end
 
-loadScript("symlink-rblx")
+-- loadScript("symlink-rblx")
 
 -- print(readfile("symlink-rblx.metatable-modifier.lua"))

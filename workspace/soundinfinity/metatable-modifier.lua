@@ -63,17 +63,21 @@ end
 --#region WriteableMetatable
 ---@class WriteableMetatable: BaseMetatable
 ---@field public onclose fun(): nil
----@field public _namecallListeners table<string, fun(): void>
-local WriteableMetatable = setmetatable(
-	{ _namecallListeners = {}, _namecallHooked = false },
-	{ __index = BaseMetatable }
-)
+---@field public _namecallListeners table<string, fun(): nil>
+local WriteableMetatable = {
+	namecallService = {
+		isrunning = false,
+		listeners = {},
+	},
+}
+setmetatable(WriteableMetatable, { __index = BaseMetatable })
+
 function WriteableMetatable:_wrap(target, oncall)
 	assert(type(target) == "function", "target is not a function.")
 	assert(type(oncall) == "function", "oncall is not a function.")
 	return self.parent:_newcclosure(function(...)
 		local response = oncall(...)
-		if response ~= nil then
+		if response then
 			return response
 		else
 			return target(...)
@@ -91,52 +95,68 @@ function WriteableMetatable:_replace(method, oncall)
 	rawset(self.metatable, method, self:_wrap(self:access(method), oncall))
 end
 
---#region __namecall
+--#region namecall-service
 function WriteableMetatable:_hookNamecall()
-	if self._namecallHooked then
+	if self.namecallService.isrunning then
 		return
 	end
-	--#region
-	local RunService = game:GetService("RunService")
-	self:bind("__namecall", function(object, ...)
-		if object == RunService then
-			return
-		end
-		local namecall
+	--#region main
+	local namecall_func = self:access("__namecall")
+	rawset(self._backupList, "__namecall", namecall_func)
+
+	self.parent:unlock(self.metatable)
+
+	--#region namecall watcher
+	local bypassId = {}
+	local function onnamecall(...)
+		local args = { ... }
+		local method
 		do
-			if getnamecallmethod ~= nil then
-				namecall = getnamecallmethod()
+			if getnamecallmethod then
+				method = getnamecallmethod()
 			end
 		end
-		if namecall ~= nil then
-			for _, data in next, self._namecallListeners do
-				if data.key == "*" or data.key == namecall then
-					pcall(function(...)
-						local preventDefault = data.listener(object, namecall, ...)
-						if preventDefault ~= nil then
-							return preventDefault
-						end
-					end, ...)
+
+		if args[2] == bypassId then
+			tremove(args, 2)
+			return namecall_func(unpack(args))
+		end
+
+		if method then
+			for _, data in next, self.namecallService.listeners do
+				if data.key == "*" or data.key == method then
+					local response = data.listener({
+						bypass = bypassId,
+						arguments = args,
+						method = method,
+						target = args[1],
+					})
+					if response then
+						return response
+					end
 				end
 			end
-			-- else
-			-- 	self:unbind("__namecall")
 		end
-	end)
+
+		return namecall_func(...)
+	end
 	--#endregion
-	self._namecallHooked = true
+	rawset(self.metatable, "__namecall", metatables:_newcclosure(onnamecall))
+	self.parent:lock(self.metatable)
+	--#endregion
+	self.namecallService.isrunning = true
 end
 
 function WriteableMetatable:addNamecallListener(key, listener)
-	assert(key, "key is not defined.")
+	assert(type(key) == "string", "key is not defined.")
 	assert(type(listener) == "function", "listener is not a function.")
 	self:_hookNamecall()
-	tinsert(self._namecallListeners, { key = key, listener = listener })
+	tinsert(self.namecallService.listeners, { key = key, listener = listener })
 	return {
 		disconnect = function()
-			for index, data in next, self._namecallListeners do
+			for index, data in next, self.namecallService.listeners do
 				if data.key == key and data.listener == listener then
-					tremove(index)
+					tremove(self.namecallService.listeners, index)
 				end
 			end
 		end,

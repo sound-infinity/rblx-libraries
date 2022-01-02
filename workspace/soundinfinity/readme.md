@@ -1,29 +1,29 @@
 # SymLink Roblox
+
 This is meant to be used within exploit environments such as JJSploit or Krnl.
 
-# Usage
-expected syntax:
-```ts
-function symlink(object: Instance, target: Instance): void {}
-```
+# Example
 
-the following is a robust example: (i will try later to make more sense of it)
+Simple RemoteSpy
+
 ```lua
-local remotes = Instance.new("Folder")
-remotes.Name = "__REMOTES"
-remotes.Parent = workspace.Terrain
+local mt_mod = import('soundinfinity/metatable-modifier.lua')
+local mt = mt_mod:open(game, "w")
+mt:close()
 
-local things = Instance.new("Folder")
-things.Name = "__THINGS"
-things.Parent = workspace
+local function log_event(ev)
+    if ev.target.Name:lower():match("tilt") then return end
+    if ev.target.Name:lower():match("anal") then return end
+    local buff = {}
+    for k,v in next, ev.arguments do
+        table.insert(buff, '"'..tostring(v)..'"')
+    end
+    rconsolewarn('arguments: '.. table.concat(buff, ' '))
+    rconsolewarn('target: '..ev.target:GetFullName())
+    rconsolewarn('type: '..ev.target.ClassName .. '\n')
+end
 
-symlink(things, remotes)
-
-print(things.ChildName.Name) --> remotes.ChildName.Name
-things.ChildName:FireServer() --> remotes.ChildName:FireServer()
+mt:addNamecallListener('FireServer', log_event)
+mt:addNamecallListener('Fire', log_event)
+mt:addNamecallListener('InvokeServer', log_event)
 ```
-
-To summarize, this will redirect references of the children from "things" to be retrieved from "remotes" instead.
-
-# Why?
-I made this to patch a exploiting script for Pet Simulator, because they have moved the __REMOTES folder.
