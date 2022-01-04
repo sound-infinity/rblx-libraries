@@ -99,6 +99,8 @@ end
 function WriteableMetatable:_hookNamecall()
 	if self.namecallService.isrunning then
 		return
+	else
+		self.namecallService.isrunning = true
 	end
 	--#region main
 	local namecall_func = self:access("__namecall")
@@ -108,14 +110,12 @@ function WriteableMetatable:_hookNamecall()
 
 	--#region namecall watcher
 	local bypassId = {}
+	local getnamecallmethod = getnamecallmethod
+	local unpack = table.unpack or unpack
+
 	local function onnamecall(...)
 		local args = { ... }
-		local method
-		do
-			if getnamecallmethod then
-				method = getnamecallmethod()
-			end
-		end
+		local method = getnamecallmethod()
 
 		if args[2] == bypassId then
 			tremove(args, 2)
@@ -138,13 +138,18 @@ function WriteableMetatable:_hookNamecall()
 			end
 		end
 
-		return namecall_func(...)
+		return namecall_func(unpack(args))
 	end
 	--#endregion
 	rawset(self.metatable, "__namecall", metatables:_newcclosure(onnamecall))
 	self.parent:lock(self.metatable)
 	--#endregion
-	self.namecallService.isrunning = true
+end
+
+function WriteableMetatable:unhookNamecall()
+	self:unbind("__namecall")
+	self.namecallService.isrunning = false
+	self.namecallService.listeners = {}
 end
 
 function WriteableMetatable:addNamecallListener(key, listener)
@@ -179,10 +184,12 @@ function WriteableMetatable:unbind(method)
 end
 
 function WriteableMetatable:close()
-	local onclose = rawget(self, "onclose")
-	for method in next, self._backupList do
-		self:unbind(method)
+	local onclose = self.onclose
+	self.parent:unlock(self.metatable)
+	for method, func in next, self._backupList do
+		rawset(self.metatable, method, func)
 	end
+	self.parent:lock(self.metatable)
 	if type(onclose) == "function" then
 		onclose()
 	end
@@ -192,20 +199,21 @@ end
 ---@return WriteableMetatable
 function metatables:new_writeable_mt(object)
 	--#region check if opened
-	local openedInstance = rawget(self._opened, object)
+	local openedInstance = self._opened[object]
 	if openedInstance then
 		return openedInstance
 	end
 	--#endregion
 	---@type WriteableMetatable
-	local o = self:new_metatable(object)
-	rawset(self._opened, object, o)
-	setmetatable(o, WriteableMetatable)
+	local obj = self:new_metatable(object)
+	self._opened[object] = obj
+	setmetatable(obj, WriteableMetatable)
 	WriteableMetatable.__index = WriteableMetatable
-	o.onclose = function()
-		rawset(self._opened, object, nil)
+	obj.onclose = function()
+		setmetatable(obj, {})
+		self._opened[object] = nil
 	end
-	return o
+	return obj
 end
 
 --#region readonly-handler
